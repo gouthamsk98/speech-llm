@@ -1,4 +1,4 @@
-# SPEECH LLM
+# Speech LLM
 
 ## About
 
@@ -37,7 +37,7 @@ This is a derivative work from Ichigo-whisper [Ichigo v0.5 family](https://githu
 
 # Acknowledgement
 
-- **[ICHIGO-WHISPER](https://github.com/janhq/WhisperSpeech.git)**
+- **[Ichigo-Whisper](https://github.com/janhq/WhisperSpeech.git)**
 
 - **[WhisperSpeech](https://github.com/collabora/WhisperSpeech)**
 

@@ -1,28 +1,37 @@
 import torch
 import torchaudio
-from whisperspeech.vq_stoks import RQBottleneckTransformer
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, pipeline
-from huggingface_hub import hf_hub_download
-import os
+import whisper
+from utils import load_model
+
 device = "cuda" if torch.cuda.is_available() else "cpu"
-if not os.path.exists("whisper-vq-stoks-medium-en+pl-fixed.model"):
-    hf_hub_download(
-        repo_id="homebrewltd/Ichigo-whisper-v0.1",
-        filename="merge-medium-vi-2d-2560c-dim64.pth",
-        local_dir=".",
-    )
-vq_model = RQBottleneckTransformer.load_model(
-        "merge-medium-vi-2d-2560c-dim64.pth"
-    ).to(device)
-vq_model.ensure_whisper(device)
-def audio_to_sound_tokens(audio_path, target_bandwidth=1.5, device=device):
+ichigo_name = "homebrewltd/ichigo-whisper:merge-medium-vi-2d-2560c-dim64.pth"
+model_size = "merge-medium-vi-2d-2560c-dim64"
+whisper_model_name = "medium"
+language = "demo"
+
+whisper_model = whisper.load_model(whisper_model_name)
+whisper_model.to(device)
+
+ichigo_model = load_model(ref=ichigo_name, size=model_size)
+ichigo_model.ensure_whisper(device, language)
+ichigo_model.to(device)
+
+def audio_to_sound_tokens_whisperspeech(audio_path):
 
     wav, sr = torchaudio.load(audio_path)
     if sr != 16000:
         wav = torchaudio.functional.resample(wav, sr, 16000)
     with torch.no_grad():
-        codes = vq_model.encode_audio(wav.to(device))
+        codes = ichigo_model.encode_audio(wav.to('cuda'))
         codes = codes[0].cpu().tolist()
-
+    
     result = ''.join(f'<|sound_{num:04d}|>' for num in codes)
     return f'<|sound_start|>{result}<|sound_end|>'
+def audio_to_sound_tokens_whisperspeech_transcribe(audio_path):
+    
+    wav, sr = torchaudio.load(audio_path)
+    if sr != 16000:
+        wav = torchaudio.functional.resample(wav, sr, 16000)
+    with torch.no_grad():
+        codes = ichigo_model.encode_audio(wav.to('cuda'))
+        codes = codes[0].cpu().tolist()

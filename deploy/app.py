@@ -45,7 +45,7 @@ ichigo_model.to(device)
 
 tts = TTSProcessor(device)
 use_8bit = False    
-llm_path = "deepseek-ai/deepseek-coder-6.7b-instruct"
+llm_path = "unsloth/Llama-3.2-1B-Instruct"
 tokenizer = AutoTokenizer.from_pretrained(llm_path)
 model_kwargs = {}
 if args.use_8bit:
@@ -122,18 +122,17 @@ def process_audio(audio_file, transcript=False):
 
     sound_tokens = audio_to_sound_tokens_whisperspeech_transcribe(audio_file)  if transcript else audio_to_sound_tokens_whisperspeech(audio_file)
     logging.info("Audio transcribed successfully")
-    logging.info(f"audio_file: {audio_file.name}")
     #####Start 1#####
-    # messages = [
-    #     {"role": "user", "content": sound_tokens},
-    # ]
-    # input_ids = tokenizer.encode(tokenizer.apply_chat_template(messages, tokenize=False), return_tensors="pt")
+    messages = [
+        {"role": "user", "content": sound_tokens},
+    ]
+    input_ids = tokenizer.encode(tokenizer.apply_chat_template(messages, tokenize=False), return_tensors="pt")
     #####Stop 1######
     #####Start 2#####
-    bos = tokenizer.eos_token
-    template= bos+"<|user|>\n{sound_tokens}\n<|assistant|>\n"
-    input_text = template.format(prompt=sound_tokens)
-    input_ids = tokenizer([input_text], return_tensors="pt", return_token_type_ids=False).input_ids
+    # bos = tokenizer.eos_token
+    # template= bos+"<|user|>\n{sound_tokens}\n<|assistant|>\n"
+    # input_text = template.format(prompt=sound_tokens)
+    # input_ids = tokenizer([input_text], return_tensors="pt", return_token_type_ids=False).input_ids
     #####Stop 2######   
     
     stop = StopOnTokens()

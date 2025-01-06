@@ -15,6 +15,9 @@ import uuid
 import argparse
 from models.utils import load_model
 import whisper
+import warnings
+
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Host the Gradio WebUI with custom settings")
@@ -42,7 +45,7 @@ ichigo_model.to(device)
 
 tts = TTSProcessor(device)
 use_8bit = False    
-llm_path = "homebrewltd/Ichigo-llama3.1-s-instruct-v0.3-phase-3"
+llm_path = "deepseek-ai/deepseek-coder-6.7b-instruct"
 tokenizer = AutoTokenizer.from_pretrained(llm_path)
 model_kwargs = {}
 if args.use_8bit:
@@ -68,41 +71,15 @@ def audio_to_sound_tokens_whisperspeech(audio_path):
     wav, sr = torchaudio.load(audio_path)
     if sr != 16000:
         wav = torchaudio.functional.resample(wav, sr, 16000)
-    with torch.no_grad():
-        codes = ichigo_model.encode_audio(wav.to('cuda'))
-        codes = codes[0].cpu().tolist()
-    
-    result = ''.join(f'<|sound_{num:04d}|>' for num in codes)
-    return f'<|sound_start|>{result}<|sound_end|>'
+    transcribe = ichigo_model.inference(wav.to(device))
+    return transcribe[0].text
 def audio_to_sound_tokens_whisperspeech_transcribe(audio_path):
     
     wav, sr = torchaudio.load(audio_path)
     if sr != 16000:
         wav = torchaudio.functional.resample(wav, sr, 16000)
-    with torch.no_grad():
-        codes = ichigo_model.encode_audio(wav.to('cuda'))
-        codes = codes[0].cpu().tolist()
-    
-    result = ''.join(f'<|sound_{num:04d}|>' for num in codes)
-    return f'<|reserved_special_token_69|><|sound_start|>{result}<|sound_end|>'
-def audio_to_sound_tokens(audio_path, target_bandwidth=1.5, device="cuda"):
-    model = EncodecModel.encodec_model_24khz()
-    model.set_target_bandwidth(target_bandwidth)
-    model.to(device)
-    
-    wav, sr = torchaudio.load(audio_path)
-    wav = convert_audio(wav, sr, model.sample_rate, model.channels)
-    wav = wav.unsqueeze(0).to(device)
-    
-    with torch.no_grad():
-        encoded_frames = model.encode(wav)
-        codes = torch.cat([encoded[0] for encoded in encoded_frames], dim=-1)
-    
-    audio_code1, audio_code2 = codes[0][0], codes[0][1]
-    flatten_tokens = torch.stack((audio_code1, audio_code2), dim=1).flatten().tolist()
-    result = ''.join(f'<|sound_{num:04d}|>' for num in flatten_tokens)
-    return f'<|sound_start|>{result}<|sound_end|>'
-
+    transcribe = ichigo_model.inference(wav.to(device))
+    return transcribe[0].text
 def text_to_audio_file(text):
     # gen a random id for the audio file
     id = str(uuid.uuid4())
@@ -175,9 +152,6 @@ def process_audio(audio_file, transcript=False):
         yield partial_message
 
 with gr.Blocks() as iface:
-    gr.Markdown("# Ichigo-llama3-s: Llama3.1 with listening capabilities")
-    gr.Markdown("Record your voice or upload audio and send it to the model.")
-    gr.Markdown("Powered by [Homebrew Ltd](https://homebrew.ltd/) | [Read our blog post](https://homebrew.ltd/blog/llama3-just-got-ears)")
 
     with gr.Row():
         input_type = gr.Radio(["text", "audio"], label="Input Type", value="audio")

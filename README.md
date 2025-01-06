@@ -31,6 +31,14 @@ This is a derivative work from Ichigo-whisper [Ichigo v0.5 family](https://githu
 
     Ensure that your PyTorch version (2.5.1) is compatible with your CUDA version. For this project, CUDA 12.1 is used.
 
+### Deployment
+
+This application uses the Gradio client for deployment. You can also add the variables `use-4bit` and `use-8bit` for quantized usage:
+
+```
+python -m deploy.app --host 0.0.0.0 --port 3389 --max-seq-len 1024 --use-4bit
+```
+
 ## Author
 
 [Goutham S Krishna](https://www.linkedin.com/in/goutham-s-krishna-21ab151a0/)

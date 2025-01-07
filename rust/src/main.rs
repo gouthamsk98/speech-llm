@@ -23,6 +23,7 @@ use candle_transformers::models::metavoice::{
 };
 use candle_transformers::models::encodec;
 use crate::models::tts::TTSModel;
+use candle_transformers::models::quantized_metavoice::transformer as qtransformer;
 
 mod pcm_decode;
 mod models;
@@ -86,7 +87,7 @@ fn main() -> Result<()> {
     let repeat_penalty = 1.1;
     let repeat_last_n: usize = 64;
     let guidance_scale: f64 = 3.0;
-    let max_token: u64 = 124;
+    let max_token: u64 = 256;
 
     let input = std::path::PathBuf::from("input_3.wav");
 
@@ -150,13 +151,22 @@ fn main() -> Result<()> {
     let second_stage_weights = meta_repo.get("second_stage.safetensors")?;
     let encodec_weights = api.model("facebook/encodec_24khz".to_string()).get("model.safetensors")?;
     let first_stage_config = transformer::Config::cfg1b_v0_1();
-    let mut first_stage_model = {
-        let first_stage_weights = meta_repo.get("first_stage.safetensors")?;
-        let first_stage_vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(&[first_stage_weights], dtype, &device)?
-        };
-        let first_stage_model = transformer::Model::new(&first_stage_config, first_stage_vb)?;
-        TTSModel::Normal(first_stage_model)
+    // let mut first_stage_model = {
+    //     let first_stage_weights = meta_repo.get("first_stage.safetensors")?;
+    //     let first_stage_vb = unsafe {
+    //         VarBuilder::from_mmaped_safetensors(&[first_stage_weights], dtype, &device)?
+    //     };
+    //     let first_stage_model = transformer::Model::new(&first_stage_config, first_stage_vb)?;
+    //     TTSModel::Normal(first_stage_model)
+    // };
+    let first_stage_model = {
+        let first_stage_weights = meta_repo.get("first_stage_q4k.gguf")?;
+        let first_stage_vb = candle_transformers::quantized_var_builder::VarBuilder::from_gguf(
+            first_stage_weights,
+            &device
+        )?;
+        let first_stage_model = qtransformer::Model::new(&first_stage_config, first_stage_vb)?;
+        TTSModel::Quantized(first_stage_model)
     };
     let second_stage_vb = unsafe {
         VarBuilder::from_mmaped_safetensors(&[second_stage_weights], dtype, &device)?
@@ -242,7 +252,7 @@ fn main() -> Result<()> {
         fs_tokenizer,
         seed,
         spk_emb,
-        temperature,
+        Some(1.0),
         top_p,
         repeat_penalty,
         repeat_last_n,

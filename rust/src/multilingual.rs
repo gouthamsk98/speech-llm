@@ -105,7 +105,7 @@ const LANGUAGES: [(&str, &str); 99] = [
 
 /// Returns the token id for the selected language.
 pub fn detect_language(
-    model: &mut super::Model,
+    model: &mut super::WhisperModel,
     tokenizer: &Tokenizer,
     mel: &Tensor
 ) -> Result<u32> {

@@ -6,13 +6,13 @@ use tokenizers::Tokenizer;
 use rand::{ distributions::Distribution, SeedableRng };
 use crate::token_id;
 use clap::{ Parser, ValueEnum };
-pub enum Model {
+pub enum WhisperModel {
     Normal(m::model::Whisper),
     Quantized(m::quantized_model::Whisper),
 }
 
 // Maybe we should use some traits rather than doing the dispatch for all these.
-impl Model {
+impl WhisperModel {
     pub fn config(&self) -> &Config {
         match self {
             Self::Normal(m) => &m.config,
@@ -48,9 +48,9 @@ impl Model {
 }
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
-struct DecodingResult {
+pub struct DecodingResult {
     tokens: Vec<u32>,
-    text: String,
+    pub text: String,
     avg_logprob: f64,
     no_speech_prob: f64,
     temperature: f64,
@@ -62,7 +62,7 @@ struct DecodingResult {
 pub struct Segment {
     start: f64,
     duration: f64,
-    dr: DecodingResult,
+    pub dr: DecodingResult,
 }
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum Task {
@@ -70,7 +70,7 @@ pub enum Task {
     Translate,
 }
 pub struct Decoder {
-    model: Model,
+    model: WhisperModel,
     rng: rand::rngs::StdRng,
     task: Option<Task>,
     timestamps: bool,
@@ -88,7 +88,7 @@ pub struct Decoder {
 impl Decoder {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        model: Model,
+        model: WhisperModel,
         tokenizer: Tokenizer,
         seed: u64,
         device: &Device,
@@ -337,12 +337,12 @@ impl Decoder {
     #[allow(dead_code)]
     pub fn reset_kv_cache(&mut self) {
         match &mut self.model {
-            Model::Normal(m) => m.reset_kv_cache(),
-            Model::Quantized(m) => m.reset_kv_cache(),
+            WhisperModel::Normal(m) => m.reset_kv_cache(),
+            WhisperModel::Quantized(m) => m.reset_kv_cache(),
         }
     }
 
-    fn model(&mut self) -> &mut Model {
+    fn model(&mut self) -> &mut WhisperModel {
         &mut self.model
     }
 }

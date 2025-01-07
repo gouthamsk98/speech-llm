@@ -226,13 +226,6 @@ fn main() -> Result<()> {
         false
     )?;
     decoder.set_language_token(Some(language_token));
-    let decode = decoder.run(&mel, None)?;
-    let prompt = if let Some(first_segment) = decode.get(0) {
-        &first_segment.dr.text
-    } else {
-        "sorry I didn't get that"
-    };
-
     let mut pipeline = TextGeneration::new(
         llm_model,
         llm_tokenizer,
@@ -243,8 +236,6 @@ fn main() -> Result<()> {
         repeat_last_n,
         &device
     );
-    let reply = pipeline.run(&prompt, sample_len)?;
-    println!("reply: {reply}");
     let mut meta_pipeline = TTS::new(
         first_stage_model,
         second_stage_model,
@@ -260,7 +251,19 @@ fn main() -> Result<()> {
         &device,
         &encodec_device
     );
+    let start = std::time::Instant::now();
+    let decode = decoder.run(&mel, None)?;
+    println!("Whisper model infernce in {:?}", start.elapsed());
+    let prompt = if let Some(first_segment) = decode.get(0) {
+        &first_segment.dr.text
+    } else {
+        "sorry I didn't get that"
+    };
+    let reply = pipeline.run(&prompt, sample_len)?;
+    println!("llm model infernce in {:?}", start.elapsed());
+    println!("reply: {reply}");
     meta_pipeline.run(&reply, max_token)?;
+    println!("meta model infernce in {:?}", start.elapsed());
     decoder.reset_kv_cache();
     Ok(())
 }

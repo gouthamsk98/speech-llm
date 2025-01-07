@@ -15,3 +15,7 @@ clap = { version = "4.2.4", features = ["derive"] }
 tokenizers = { version = "0.19.1", features = ["onig"] }
 byteorder = "1.4.3"
 symphonia = "0.5.4"
+cpal = { version = "0.15.2", optional = true }
+rand = "0.8.5"
+
+[dev-dependencies]

@@ -4,9 +4,10 @@ use hf_hub::{ api::sync::Api, Repo, RepoType };
 use tokenizers::Tokenizer;
 use candle_transformers::models::whisper::{ self as m, audio, Config };
 use candle_core::Tensor;
-use models::layers::Model;
+use models::transformer::Model;
 use candle_nn::{ ops::softmax, VarBuilder };
 use candle_examples::device;
+use crate::models::transformer::{ Decoder, Task };
 
 mod pcm_decode;
 mod models;
@@ -18,8 +19,8 @@ pub fn token_id(tokenizer: &Tokenizer, token: &str) -> candle_core::Result<u32> 
     }
 }
 fn main() -> Result<()> {
-    let model_id = "openai/whisper-tiny".to_string();
-    // let model_id = "lmz/candle-whisper".to_string();
+    // let model_id = "openai/whisper-tiny".to_string();
+    let model_id = "lmz/candle-whisper".to_string();
     let revision = "main".to_string();
     let device = device(true)?;
 
@@ -28,9 +29,9 @@ fn main() -> Result<()> {
     let api = Api::new()?;
     let repo = api.repo(Repo::with_revision(model_id, RepoType::Model, revision));
     let (config_filename, tokenizer_filename, weights_filename) = {
-        let config = repo.get("config.json")?;
-        let tokenizer = repo.get("tokenizer.json")?;
-        let model = repo.get("model.safetensors")?;
+        let config = repo.get("config-tiny.json")?;
+        let tokenizer = repo.get("tokenizer-tiny.json")?;
+        let model = repo.get("model-tiny.safetensors")?;
         (config, tokenizer, model)
     };
 
@@ -66,7 +67,22 @@ fn main() -> Result<()> {
     println!("loaded mel: {:?}", mel.dims());
 
     // detect language
-    let language_token = multilingual::detect_language(&mut model, &tokenizer, &mel)?;
+    // let language_token = multilingual::detect_language(&mut model, &tokenizer, &mel)?;
+    let language_token = token_id(&tokenizer, &format!("<|en|>"))?;
     println!("language_token: {:?}", language_token);
+    let seed = 299792458;
+    let mut decoder = Decoder::new(
+        model,
+        tokenizer,
+        seed,
+        &device,
+        None,
+        Some(Task::Transcribe),
+        true,
+        true
+    )?;
+    decoder.set_language_token(Some(language_token));
+    decoder.run(&mel, None)?;
+    decoder.reset_kv_cache();
     Ok(())
 }

@@ -67,7 +67,7 @@ impl TTS {
             encodec_device: encodec_device.clone(),
         }
     }
-    pub fn run(&mut self, text: &str, max_token: u64) -> Result<()> {
+    pub fn run(&mut self, text: &str, max_token: usize) -> Result<()> {
         let prompt_tokens = self.tokenizer.encode(text)?;
         let mut tokens = prompt_tokens.clone();
         use std::io::Write;

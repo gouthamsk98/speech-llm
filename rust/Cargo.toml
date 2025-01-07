@@ -18,5 +18,6 @@ symphonia = "0.5.4"
 cpal = { version = "0.15.2", optional = true }
 rand = "0.8.5"
 rubato = { version = "0.15.0" }
+reqwest = "0.11.6"
 
 [dev-dependencies]

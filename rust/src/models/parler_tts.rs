@@ -43,7 +43,8 @@ impl ParlerTTS {
             top_p,
         }
     }
-    pub fn run(&mut self, prompt: &str, description: &str, max_step: usize) -> Result<()> {
+    pub fn run(&mut self, prompt: &str, max_step: usize) -> Result<()> {
+        let description = "A female speaker";
         let description_tokens = self.tokenizer
             .encode(description, true)
             .map_err(E::msg)?
@@ -61,7 +62,7 @@ impl ParlerTTS {
         let codes = self.model.generate(&prompt_tokens, &description_tokens, lp, max_step)?;
         println!("generated codes\n{codes}");
         let codes = codes.to_dtype(DType::I64)?;
-        codes.save_safetensors("codes", "out.safetensors")?;
+        // codes.save_safetensors("codes", "out.safetensors")?;
         let codes = codes.unsqueeze(0)?;
         let pcm = self.model.audio_encoder.decode_codes(&codes.to_device(&self.device)?)?;
         let pcm = pcm.i((0, 0))?;

@@ -43,7 +43,7 @@ impl TextGeneration {
         }
     }
 
-    pub fn run(&mut self, prompt: &str, sample_len: usize) -> Result<()> {
+    pub fn run(&mut self, prompt: &str, sample_len: usize) -> Result<String> {
         use std::io::Write;
         self.tokenizer.clear();
         let mut tokens = self.tokenizer
@@ -52,12 +52,13 @@ impl TextGeneration {
             .map_err(E::msg)?
             .get_ids()
             .to_vec();
+        let mut result = String::new();
+
         for &t in tokens.iter() {
             if let Some(t) = self.tokenizer.next_token(t)? {
-                print!("{t}");
+                result.push_str(&t);
             }
         }
-        std::io::stdout().flush()?;
 
         let mut generated_tokens = 0usize;
         let eos_token = match self.tokenizer.get_token("<|endoftext|>") {
@@ -93,19 +94,19 @@ impl TextGeneration {
                 break;
             }
             if let Some(t) = self.tokenizer.next_token(next_token)? {
-                print!("{t}");
-                std::io::stdout().flush()?;
+                result.push_str(&t);
             }
         }
         let dt = start_gen.elapsed();
         if let Some(rest) = self.tokenizer.decode_rest().map_err(E::msg)? {
-            print!("{rest}");
+            result.push_str(&rest);
         }
-        std::io::stdout().flush()?;
+
         println!(
             "\n{generated_tokens} tokens generated ({:.2} token/s)",
             (generated_tokens as f64) / dt.as_secs_f64()
         );
-        Ok(())
+
+        Ok(result)
     }
 }

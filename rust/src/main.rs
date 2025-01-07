@@ -85,7 +85,6 @@ fn main() -> Result<()> {
     let top_p: Option<f64> = None;
     let repeat_penalty = 1.1;
     let repeat_last_n: usize = 64;
-    let dtype: ArgDType = ArgDType::F32;
     let guidance_scale: f64 = 3.0;
     let max_token: u64 = 124;
 
@@ -124,7 +123,7 @@ fn main() -> Result<()> {
         &std::fs::read_to_string(llm_config_filename)?
     )?;
     let llm_tokenizer = Tokenizer::from_file(llm_tokenizer_filename).map_err(E::msg)?;
-    let dtype = if device.is_metal() || device.is_cuda() { DType::BF16 } else { DType::F32 };
+    let dtype = if device.is_metal() { DType::BF16 } else { DType::F32 };
     let llm_model = {
         let vb = unsafe {
             VarBuilder::from_mmaped_safetensors(&llm_weights_filenames, dtype, &device)?
@@ -234,8 +233,8 @@ fn main() -> Result<()> {
         repeat_last_n,
         &device
     );
-    pipeline.run(&prompt, sample_len)?;
-    decoder.reset_kv_cache();
+    let reply = pipeline.run(&prompt, sample_len)?;
+    println!("reply: {reply}");
     let mut meta_pipeline = TTS::new(
         first_stage_model,
         second_stage_model,
@@ -251,6 +250,7 @@ fn main() -> Result<()> {
         &device,
         &encodec_device
     );
-    meta_pipeline.run(&prompt, max_token)?;
+    meta_pipeline.run(&reply, max_token)?;
+    decoder.reset_kv_cache();
     Ok(())
 }

@@ -85,46 +85,80 @@ enum TTSPipeline {
     MetaVoice(TTS),
     GTTS,
 }
-pub const GOOGLE_TTS_MAX_CHARS: usize = 100;
-pub async fn tts_to_file(
-    text: &str,
+/// Amplify audio samples by a given scale factor
+fn amplify_mp3(
+    input_path: &str,
+    output_path: &str,
+    amplification: f32
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::process::Command;
+    use std::path::Path;
+    // Ensure the input file exists
+    if !Path::new(input_path).exists() {
+        return Err(format!("Input file '{}' does not exist.", input_path).into());
+    }
+
+    // Construct the ffmpeg command to amplify the audio
+    let status = Command::new("ffmpeg")
+        .arg("-y") // Add this argument to force overwrite
+        .arg("-i")
+        .arg(input_path)
+        .arg("-filter:a")
+        .arg(&format!("volume={}dB", amplification))
+        .arg(output_path)
+        .status()
+        .map_err(|e| format!("Failed to execute ffmpeg command: {}", e))?;
+
+    // Check if the command executed successfully
+    if !status.success() {
+        return Err("Failed to amplify the MP3 file.".into());
+    }
+
+    Ok(())
+}
+async fn tts_to_file(
+    text: String,
     filename: &str,
     language: &str,
     tld: &str
 ) -> Result<(), String> {
-    todo!()
-    // let len = text.len();
-    // let text = if len > GOOGLE_TTS_MAX_CHARS { &text[..GOOGLE_TTS_MAX_CHARS] } else { text };
-    // let encoded_text = urlencoding::encode(text);
-    // let url = format!(
-    //     "https://translate.google.{}/translate_tts?ie=UTF-8&q={}&tl={}&client=tw-ob",
-    //     tld,
-    //     encoded_text,
-    //     language
-    // );
-    // let client = Client::new();
-    // let res = client
-    //     .get(&url)
-    //     .send().await
-    //     .map_err(|e| format!("HTTP request error: {}", e))?
-    //     .bytes().await
-    //     .map_err(|e| format!("Failed to read response bytes: {}", e));
-    // println!("text: {}", text);
-    // let response = match res {
-    //     Ok(r) => r,
-    //     Err(e) => {
-    //         return Err(e);
-    //     }/// The code snippet provided is incomplete and does not provide enough context to determine
-    //     /// its exact purpose. It appears to be Rust code, but it is missing important details such as
-    //     /// variable declarations, function definitions, or context for the code block.
+    const GOOGLE_TTS_MAX_CHARS: usize = 100;
+    let len = text.len();
+    let text = if len > GOOGLE_TTS_MAX_CHARS { &text[..GOOGLE_TTS_MAX_CHARS] } else { &text };
+    let encoded_text = urlencoding::encode(text);
+    let url = format!(
+        "https://translate.google.{}/translate_tts?ie=UTF-8&q={}&tl={}&client=tw-ob",
+        tld,
+        encoded_text,
+        language
+    );
+    let client = Client::new();
+    let res = client
+        .get(&url)
+        .send().await
+        .map_err(|e| format!("HTTP request error: {}", e))?
+        .bytes().await
+        .map_err(|e| format!("Failed to read response bytes: {}", e));
+    let response = match res {
+        Ok(r) => r,
+        Err(e) => {
+            return Err(e);
+        }
+    };
+    //write to file
+    let mut file = File::create(filename).map_err(|e| format!("File creation error: {}", e))?;
+    file.write_all(&response).map_err(|e| format!("File writing error: {}", e))?;
+    let output_path = format!("amplified_{}", filename);
+    let amplification = 10.0; // Amplify by 10 dB
 
-    // };
-    // //write to file
-    // let mut file = File::create(filename).map_err(|e| format!("File creation error: {}", e))?;
-    // file.write_all(&response).map_err(|e| format!("File writing error: {}", e))?;
-    // Ok(())
+    match amplify_mp3(filename, &output_path, amplification) {
+        Ok(_) => println!("Successfully amplified the MP3 file."),
+        Err(e) => eprintln!("Error: {}", e),
+    }
+    Ok(())
 }
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let input = std::path::PathBuf::from("input_3.wav");
     let whisper_model_id = "openai/whisper-tiny".to_string();
     // let whisper_model_id = "openai/whisper-base.en".to_string();
@@ -141,7 +175,7 @@ fn main() -> Result<()> {
     let repeat_last_n: usize = 64;
     let guidance_scale: f64 = 3.0;
     let max_token: usize = 256;
-    let tts_type = TTSType::MetaVoice;
+    let tts_type = TTSType::GTTS;
 
     let api = Api::new()?;
     //load whisper model
@@ -322,7 +356,7 @@ fn main() -> Result<()> {
                 )
             )
         }
-        TTSType::GTTS => { unimplemented!() }
+        TTSType::GTTS => { TTSPipeline::GTTS }
     };
 
     //print model dimention
@@ -382,7 +416,7 @@ fn main() -> Result<()> {
     };
     let reply = pipeline.run(&prompt, sample_len)?;
     println!("llm model infernce in {:?}", start.elapsed());
-    println!("reply: {reply}");
+    // println!("reply: {reply}");
     match tts_type {
         TTSType::ParlerTTS => {
             let mut tts = match tts_pipeline {
@@ -399,7 +433,13 @@ fn main() -> Result<()> {
             tts.run(&reply, max_token)?;
         }
         TTSType::GTTS => {
-            unimplemented!();
+            let filename = "output.mp3";
+            let language = "en"; // English
+            let tld = "com"; // Us
+            let _ = tts_to_file(reply, filename, language, tld).await;
+            // let handle = tokio::spawn(async move {
+            //     println!("reply: {reply}");
+            // });
         }
     }
 

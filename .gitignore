@@ -1,3 +1,5 @@
 __pycache__
 rust/target
 rust/Cargo.lock
+*.mp3
+*.wav

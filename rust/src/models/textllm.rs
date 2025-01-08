@@ -110,3 +110,52 @@ impl TextGeneration {
         Ok(result)
     }
 }
+pub fn load_model(device: Device) -> TextGeneration {
+    use candle_transformers::models::stable_lm::{ Model as StableLM, self };
+    use hf_hub::{ api::sync::Api, Repo, RepoType };
+    println!("loading textllm model...");
+    let start = std::time::Instant::now();
+    let api = Api::new().unwrap();
+    let llm_repo = api.repo(
+        Repo::with_revision(
+            "stabilityai/stablelm-2-zephyr-1_6b".to_string(),
+            RepoType::Model,
+            "main".to_string()
+        )
+    );
+    let (llm_config_filename, llm_tokenizer_filename, llm_weights_filenames) = {
+        let config = llm_repo.get("config.json").unwrap();
+        let tokenizer = llm_repo.get("tokenizer.json").unwrap();
+        let model = vec![llm_repo.get("model.safetensors").unwrap()];
+        (config, tokenizer, model)
+    };
+    let llm_config: stable_lm::Config = serde_json
+        ::from_str(&std::fs::read_to_string(llm_config_filename).unwrap())
+        .unwrap();
+    let llm_tokenizer = Tokenizer::from_file(llm_tokenizer_filename).map_err(E::msg).unwrap();
+    let dtype = if device.is_metal() { DType::BF16 } else { DType::F32 };
+    let llm_model = {
+        let vb = unsafe {
+            VarBuilder::from_mmaped_safetensors(&llm_weights_filenames, dtype, &device).unwrap()
+        };
+        let model = StableLM::new(&llm_config, vb).unwrap();
+        Model::StableLM(model)
+    };
+    let seed = 299792458;
+    let temperature: Option<f64> = None;
+    let top_p: Option<f64> = None;
+    let repeat_penalty = 1.1;
+    let repeat_last_n: usize = 64;
+    let pipeline = TextGeneration::new(
+        llm_model,
+        llm_tokenizer,
+        seed,
+        temperature,
+        top_p,
+        repeat_penalty,
+        repeat_last_n,
+        &device
+    );
+    println!("loaded textllm model in {:.2?}", start.elapsed());
+    pipeline
+}

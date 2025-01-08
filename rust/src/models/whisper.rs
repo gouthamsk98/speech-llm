@@ -4,8 +4,9 @@ use candle_transformers::models::whisper::{ self as m, audio, Config };
 use anyhow::{ Error as E, Result };
 use tokenizers::Tokenizer;
 use rand::{ distributions::Distribution, SeedableRng };
-use crate::token_id;
+use crate::cli::token_id;
 use clap::{ Parser, ValueEnum };
+use candle_examples::device;
 pub enum WhisperModel {
     Normal(m::model::Whisper),
     Quantized(m::quantized_model::Whisper),
@@ -345,4 +346,57 @@ impl Decoder {
     fn model(&mut self) -> &mut WhisperModel {
         &mut self.model
     }
+}
+
+pub fn load_model(device: Device) -> Decoder {
+    use hf_hub::{ api::sync::Api, Repo, RepoType };
+    println!("loading whisper model...");
+    let start = std::time::Instant::now();
+    let seed = 299792458;
+    let api = Api::new().unwrap();
+    let whisper_repo = api.repo(
+        Repo::with_revision("openai/whisper-tiny".to_string(), RepoType::Model, "main".to_string())
+    );
+    let (config_filename, tokenizer_filename, weights_filename) = {
+        let config = whisper_repo.get("config.json").unwrap();
+        let tokenizer = whisper_repo.get("tokenizer.json").unwrap();
+        let model = whisper_repo.get("model.safetensors").unwrap();
+        (config, tokenizer, model)
+    };
+    let whisper_config: Config = serde_json
+        ::from_str(&std::fs::read_to_string(config_filename).unwrap())
+        .unwrap();
+    let whisper_tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(E::msg).unwrap();
+    let whisper_model = {
+        let vb = unsafe {
+            VarBuilder::from_mmaped_safetensors(&[weights_filename], m::DTYPE, &device).unwrap()
+        };
+        WhisperModel::Normal(m::model::Whisper::load(&vb, whisper_config.clone()).unwrap())
+    };
+    let language_token = token_id(&whisper_tokenizer, &format!("<|en|>")).unwrap();
+    let mut decoder = Decoder::new(
+        whisper_model,
+        whisper_tokenizer,
+        seed,
+        &device,
+        None,
+        Some(Task::Transcribe),
+        false,
+        false
+    ).unwrap();
+    decoder.set_language_token(Some(language_token));
+    println!("loaded whisper model in {:?}", start.elapsed());
+    decoder
+}
+pub fn get_config() -> Config {
+    use hf_hub::{ api::sync::Api, Repo, RepoType };
+    let api = Api::new().unwrap();
+    let whisper_repo = api.repo(
+        Repo::with_revision("openai/whisper-tiny".to_string(), RepoType::Model, "main".to_string())
+    );
+    let config_filename = whisper_repo.get("config.json").unwrap();
+    let whisper_config: Config = serde_json
+        ::from_str(&std::fs::read_to_string(config_filename).unwrap())
+        .unwrap();
+    whisper_config
 }

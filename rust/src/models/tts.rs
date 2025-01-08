@@ -1,7 +1,6 @@
 use anyhow::Ok;
 use candle_transformers::generation::LogitsProcessor;
 use candle_transformers::models::encodec;
-use candle_transformers::models::flux::autoencoder::DiagonalGaussian;
 use candle_transformers::models::metavoice::{ adapters, gpt, tokenizers, transformer };
 use candle_transformers::models::quantized_metavoice::transformer as qtransformer;
 use candle_core::{ DType, Device, Tensor };

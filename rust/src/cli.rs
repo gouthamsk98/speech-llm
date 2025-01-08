@@ -5,7 +5,7 @@ use crate::models::parler_tts::ParlerTTS;
 use crate::utils::tts_to_file;
 use tokenizers::Tokenizer;
 use candle_transformers::models::whisper::{ self as m, audio, Config };
-use candle_transformers::models::stable_lm::{ Model as StableLM, self };
+use crate::models::custom_model::{ Model as StableLM, self };
 use candle_core::{ Tensor, DType };
 use crate::models::whisper::WhisperModel;
 use crate::models::textllm::{ Model as TextLLM, TextGeneration };
@@ -89,7 +89,7 @@ pub async fn cli(tts_type: TTSType) -> Result<()> {
         let model = vec![llm_repo.get("model.safetensors")?];
         (config, tokenizer, model)
     };
-    let llm_config: stable_lm::Config = serde_json::from_str(
+    let llm_config: custom_model::Config = serde_json::from_str(
         &std::fs::read_to_string(llm_config_filename)?
     )?;
     let llm_tokenizer = Tokenizer::from_file(llm_tokenizer_filename).map_err(E::msg)?;

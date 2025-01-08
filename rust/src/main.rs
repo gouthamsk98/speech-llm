@@ -3,7 +3,7 @@ extern crate rocket;
 mod pcm_decode;
 mod models;
 mod utils;
-// mod cli;
+mod cli;
 use std::env;
 use candle_transformers::pipelines;
 
@@ -117,6 +117,7 @@ async fn index(
         .finalize()
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
         .unwrap();
+    let start = std::time::Instant::now();
     let (pcm_data, sample_rate) = crate::pcm_decode::pcm_decode(file_name).unwrap();
     let mel = audio::pcm_to_mel(&pipelines.whisper_config, &pcm_data, &pipelines.mel_filters);
     let mel_len = mel.len();
@@ -142,7 +143,10 @@ async fn index(
     };
 
     match pipelines.llm_pipeline.run(prompt, 100) {
-        Ok(result) => { result }
+        Ok(result) => {
+            println!("{}s", start.elapsed().as_secs());
+            result
+        }
         Err(e) => { e.to_string() }
     }
 }
@@ -187,6 +191,6 @@ async fn main() {
             .launch().await
             .unwrap();
     } else {
-        // cli::cli(tts_type).await.unwrap();
+        cli::cli(tts_type).await.unwrap();
     }
 }

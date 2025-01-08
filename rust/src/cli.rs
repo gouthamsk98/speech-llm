@@ -160,7 +160,7 @@ pub async fn cli(tts_type: TTSType) -> Result<()> {
                 &std::fs::File::open(first_stage_meta)?
             )?;
             let first_stage_tokenizer = match first_stage_meta.as_object() {
-                None => ::bail!("not a json object"),
+                None => anyhow::bail!("not a json object"),
                 Some(j) =>
                     match j.get("tokenizer") {
                         None => anyhow::bail!("no tokenizer key"),

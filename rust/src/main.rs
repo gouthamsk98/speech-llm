@@ -3,7 +3,7 @@ extern crate rocket;
 mod pcm_decode;
 mod models;
 mod utils;
-mod cli;
+// mod cli;
 use std::env;
 use candle_transformers::pipelines;
 
@@ -36,7 +36,13 @@ struct Pipelines {
     mel_filters: Vec<f32>,
     device: candle_core::Device,
 }
-
+use tokenizers::Tokenizer;
+pub fn token_id(tokenizer: &Tokenizer, token: &str) -> candle_core::Result<u32> {
+    match tokenizer.token_to_id(token) {
+        None => candle_core::bail!("no token-id for {token}"),
+        Some(id) => Ok(id),
+    }
+}
 fn parse_args(args: Vec<String>) -> (String, u16, bool, TTSType) {
     let mut port = 8000; // default port
     let mut host = "127.0.0.1".to_string(); // default host
@@ -134,7 +140,11 @@ async fn index(
     } else {
         "sorry I didn't get that"
     };
-    pipelines.llm_pipeline.run(prompt, 100).unwrap()
+
+    match pipelines.llm_pipeline.run(prompt, 100) {
+        Ok(result) => { result }
+        Err(e) => { e.to_string() }
+    }
 }
 
 #[tokio::main]
@@ -177,6 +187,6 @@ async fn main() {
             .launch().await
             .unwrap();
     } else {
-        cli::cli(tts_type).await.unwrap();
+        // cli::cli(tts_type).await.unwrap();
     }
 }

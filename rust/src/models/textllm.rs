@@ -1,5 +1,5 @@
-use candle_transformers::models::quantized_stable_lm::Model as QStableLM;
-use candle_transformers::models::stable_lm::{ Config, Model as StableLM };
+use candle_transformers::models::{ flux::model, quantized_stable_lm::Model as QStableLM };
+use crate::models::custom_model::{ Model as StableLM, Config };
 use candle_core::{ DType, Device, Tensor };
 use candle_examples::token_output_stream::TokenOutputStream;
 use candle_nn::VarBuilder;
@@ -44,8 +44,11 @@ impl TextGeneration {
     }
 
     pub fn run(&mut self, prompt: &str, sample_len: usize) -> Result<String> {
-        use std::io::Write;
         self.tokenizer.clear();
+        match &mut self.model {
+            Model::StableLM(m) => m.reset(),
+            Model::Quantized(m) => {}
+        }
         let mut tokens = self.tokenizer
             .tokenizer()
             .encode(prompt, true)
@@ -111,7 +114,7 @@ impl TextGeneration {
     }
 }
 pub fn load_model(device: Device) -> TextGeneration {
-    use candle_transformers::models::stable_lm::{ Model as StableLM, self };
+    use candle_transformers::models::stable_lm::{ self };
     use hf_hub::{ api::sync::Api, Repo, RepoType };
     println!("loading textllm model...");
     let start = std::time::Instant::now();
@@ -129,7 +132,7 @@ pub fn load_model(device: Device) -> TextGeneration {
         let model = vec![llm_repo.get("model.safetensors").unwrap()];
         (config, tokenizer, model)
     };
-    let llm_config: stable_lm::Config = serde_json
+    let llm_config: Config = serde_json
         ::from_str(&std::fs::read_to_string(llm_config_filename).unwrap())
         .unwrap();
     let llm_tokenizer = Tokenizer::from_file(llm_tokenizer_filename).map_err(E::msg).unwrap();

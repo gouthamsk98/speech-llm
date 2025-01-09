@@ -36,7 +36,13 @@ struct Pipelines {
     mel_filters: Vec<f32>,
     device: candle_core::Device,
 }
-
+use tokenizers::Tokenizer;
+pub fn token_id(tokenizer: &Tokenizer, token: &str) -> candle_core::Result<u32> {
+    match tokenizer.token_to_id(token) {
+        None => candle_core::bail!("no token-id for {token}"),
+        Some(id) => Ok(id),
+    }
+}
 fn parse_args(args: Vec<String>) -> (String, u16, bool, TTSType) {
     let mut port = 8000; // default port
     let mut host = "127.0.0.1".to_string(); // default host
@@ -111,6 +117,7 @@ async fn index(
         .finalize()
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
         .unwrap();
+    let start = std::time::Instant::now();
     let (pcm_data, sample_rate) = crate::pcm_decode::pcm_decode(file_name).unwrap();
     let mel = audio::pcm_to_mel(&pipelines.whisper_config, &pcm_data, &pipelines.mel_filters);
     let mel_len = mel.len();
@@ -134,7 +141,20 @@ async fn index(
     } else {
         "sorry I didn't get that"
     };
-    pipelines.llm_pipeline.run(prompt, 100).unwrap()
+    let prompt =
+        format!("<|im_start|>system
+You are a helpful assistant that provides concise answers to questions.
+<|im_end|><|im_start|>user
+{}
+<|im_end|><|im_start|>assistant
+", prompt);
+    match pipelines.llm_pipeline.run(&prompt, 64) {
+        Ok(result) => {
+            println!("{}s", start.elapsed().as_secs());
+            result.replace("\n", " ")
+        }
+        Err(e) => { e.to_string() }
+    }
 }
 
 #[tokio::main]

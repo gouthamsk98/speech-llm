@@ -4,7 +4,7 @@ use candle_transformers::models::whisper::{ self as m, audio, Config };
 use anyhow::{ Error as E, Result };
 use tokenizers::Tokenizer;
 use rand::{ distributions::Distribution, SeedableRng };
-use crate::cli::token_id;
+use crate::token_id;
 use clap::{ Parser, ValueEnum };
 use candle_examples::device;
 pub enum WhisperModel {

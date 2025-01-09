@@ -141,11 +141,17 @@ async fn index(
     } else {
         "sorry I didn't get that"
     };
-
-    match pipelines.llm_pipeline.run(prompt, 100) {
+    let prompt =
+        format!("<|im_start|>system
+You are a helpful assistant that provides concise answers to questions.
+<|im_end|><|im_start|>user
+{}
+<|im_end|><|im_start|>assistant
+", prompt);
+    match pipelines.llm_pipeline.run(&prompt, 64) {
         Ok(result) => {
             println!("{}s", start.elapsed().as_secs());
-            result
+            result.replace("\n", " ")
         }
         Err(e) => { e.to_string() }
     }

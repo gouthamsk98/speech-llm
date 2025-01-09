@@ -62,7 +62,7 @@ impl TextGeneration {
                 result.push_str(&t);
             }
         }
-
+        let prompt_len = result.len();
         let mut generated_tokens = 0usize;
         let eos_token = match self.tokenizer.get_token("<|endoftext|>") {
             Some(token) => token,
@@ -109,8 +109,9 @@ impl TextGeneration {
             "\n{generated_tokens} tokens generated ({:.2} token/s)",
             (generated_tokens as f64) / dt.as_secs_f64()
         );
-
-        Ok(result)
+        //remove intial pushed token
+        let generated_result = &result[prompt_len..];
+        Ok(generated_result.to_string())
     }
 }
 pub fn load_model(device: Device) -> TextGeneration {

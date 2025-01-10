@@ -1,6 +1,6 @@
-use candle_transformers::models::{ flux::model, quantized_stable_lm::Model as QStableLM };
+use crate::models::quantized_model::Model as QStableLM;
 use crate::models::custom_model::{ Model as StableLM, Config };
-use candle_core::{ DType, Device, Tensor };
+use candle_core::{ quantized, DType, Device, Tensor };
 use candle_examples::token_output_stream::TokenOutputStream;
 use candle_nn::VarBuilder;
 use candle_transformers::generation::LogitsProcessor;
@@ -47,7 +47,7 @@ impl TextGeneration {
         self.tokenizer.clear();
         match &mut self.model {
             Model::StableLM(m) => m.reset(),
-            Model::Quantized(m) => {}
+            Model::Quantized(m) => m.reset(),
         }
         let mut tokens = self.tokenizer
             .tokenizer()
@@ -78,7 +78,10 @@ impl TextGeneration {
                 Model::StableLM(m) => m.forward(&input, start_pos)?,
                 Model::Quantized(m) => m.forward(&input, start_pos)?,
             };
-            let logits = logits.squeeze(0)?.squeeze(0)?.to_dtype(DType::F32)?;
+            let logits = logits
+                .squeeze(0)?
+                .squeeze(0)?
+                .to_dtype(if self.device.is_metal() { DType::BF16 } else { DType::F16 })?;
             let logits = if self.repeat_penalty == 1.0 {
                 logits
             } else {
@@ -114,7 +117,7 @@ impl TextGeneration {
         Ok(generated_result.to_string())
     }
 }
-pub fn load_model(device: Device) -> TextGeneration {
+pub fn load_model(device: Device, quantized: bool) -> TextGeneration {
     use candle_transformers::models::stable_lm::{ self };
     use hf_hub::{ api::sync::Api, Repo, RepoType };
     println!("loading textllm model...");
@@ -130,7 +133,16 @@ pub fn load_model(device: Device) -> TextGeneration {
     let (llm_config_filename, llm_tokenizer_filename, llm_weights_filenames) = {
         let config = llm_repo.get("config.json").unwrap();
         let tokenizer = llm_repo.get("tokenizer.json").unwrap();
-        let model = vec![llm_repo.get("model.safetensors").unwrap()];
+        let model = if quantized {
+            vec![
+                api
+                    .model("lmz/candle-stablelm".to_string())
+                    .get("stablelm-2-zephyr-1_6b-q4k.gguf")
+                    .unwrap()
+            ]
+        } else {
+            vec![llm_repo.get("model.safetensors").unwrap()]
+        };
         (config, tokenizer, model)
     };
     let llm_config = {
@@ -140,13 +152,22 @@ pub fn load_model(device: Device) -> TextGeneration {
         config
     };
     let llm_tokenizer = Tokenizer::from_file(llm_tokenizer_filename).map_err(E::msg).unwrap();
-    let dtype = if device.is_metal() { DType::BF16 } else { DType::F32 };
+    let dtype = if device.is_metal() { DType::BF16 } else { DType::F16 };
     let llm_model = {
-        let vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(&llm_weights_filenames, dtype, &device).unwrap()
-        };
-        let model = StableLM::new(&llm_config, vb).unwrap();
-        Model::StableLM(model)
+        if quantized {
+            let filename = &llm_weights_filenames[0];
+            let vb = candle_transformers::quantized_var_builder::VarBuilder
+                ::from_gguf(filename, &device)
+                .unwrap();
+            let model = QStableLM::new(&llm_config, vb).unwrap();
+            Model::Quantized(model)
+        } else {
+            let vb = unsafe {
+                VarBuilder::from_mmaped_safetensors(&llm_weights_filenames, dtype, &device).unwrap()
+            };
+            let model = StableLM::new(&llm_config, vb).unwrap();
+            Model::StableLM(model)
+        }
     };
     let seed = 299792458;
     let temperature: Option<f64> = Some(0.9);

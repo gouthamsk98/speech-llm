@@ -165,7 +165,7 @@ async fn main() {
         let device = device(false).unwrap();
         let whisper_pipeline = whisper::load_model(device.clone());
         let whisper_config = whisper::get_config();
-        let llm_pipeline = textllm::load_model(device.clone());
+        let llm_pipeline = textllm::load_model(device.clone(), true);
         let mel_bytes = match whisper_config.num_mel_bins {
             80 => include_bytes!("melfilters.bytes").as_slice(),
             128 => include_bytes!("melfilters128.bytes").as_slice(),

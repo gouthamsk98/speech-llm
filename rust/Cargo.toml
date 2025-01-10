@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.8.0", features = ["metal"] }
-candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.8.0", features = ["metal"] }
-candle-transformers = { git = "https://github.com/huggingface/candle.git", version = "0.8.0" }
-candle-examples = { git = "https://github.com/huggingface/candle.git", version = "0.8.0" }
+candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.8.2", features = ["metal"] }
+candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.8.2", features = ["metal"] }
+candle-transformers = { git = "https://github.com/huggingface/candle.git", version = "0.8.2" }
+candle-examples = { git = "https://github.com/huggingface/candle.git", version = "0.8.2" }
 hf-hub = {version="0.4.1",features=["tokio"]}
 serde_json = "1.0.99"
 anyhow = { version = "1", features = ["backtrace"] }
@@ -16,7 +16,7 @@ tokenizers = { version = "0.19.1", features = ["onig"] }
 byteorder = "1.4.3"
 symphonia = "0.5.4"
 cpal = { version = "0.15.2", optional = true }
-rand = "0.8.5"
+rand = "0.8"
 rubato = { version = "0.15.0" }
 reqwest = "0.11.6"
 urlencoding = "2.1.3"

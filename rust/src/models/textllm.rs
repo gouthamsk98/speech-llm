@@ -1,5 +1,5 @@
 use candle_transformers::models::{ flux::model, quantized_stable_lm::Model as QStableLM };
-use crate::models::custom_model::{ Model as StableLM, Config };
+use candle_transformers::models::stable_lm::{ Model as StableLM, Config };
 use candle_core::{ DType, Device, Tensor };
 use candle_examples::token_output_stream::TokenOutputStream;
 use candle_nn::VarBuilder;
@@ -19,7 +19,45 @@ pub struct TextGeneration {
     repeat_penalty: f32,
     repeat_last_n: usize,
 }
+fn sample_top_k(logits: &Tensor, k: usize) -> Result<usize> {
+    let logits = logits.to_dtype(DType::F32)?;
+    use rand::prelude::*;
+    let logits_vec = logits.to_vec1::<f32>()?;
+    let mut indices: Vec<usize> = (0..logits_vec.len()).collect();
 
+    // Sort indices by logits in descending order
+    indices.sort_by(|&a, &b| logits_vec[b].partial_cmp(&logits_vec[a]).unwrap());
+
+    // Keep only the top-k tokens
+    let top_k = &indices[..k.min(indices.len())];
+
+    // Extract top-k logits and normalize them to probabilities
+    let top_k_logits: Vec<f32> = top_k
+        .iter()
+        .map(|&i| logits_vec[i])
+        .collect();
+    let max_logit = top_k_logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+
+    let top_k_probs: Vec<f32> = top_k_logits
+        .iter()
+        .map(|&logit| (logit - max_logit).exp())
+        .collect();
+    let sum_probs: f32 = top_k_probs.iter().sum();
+    let normalized_probs: Vec<f32> = top_k_probs
+        .iter()
+        .map(|&prob| prob / sum_probs)
+        .collect();
+
+    // Sample a token from the top-k set based on probabilities
+    let dist = rand::distributions::WeightedIndex
+        ::new(&normalized_probs)
+        .map_err(|_| anyhow::anyhow!("Failed to create WeightedIndex"))?;
+    let mut rng = rand::thread_rng();
+    let sampled_index = dist.sample(&mut rng);
+
+    // Return the token ID
+    Ok(top_k[sampled_index])
+}
 impl TextGeneration {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -69,6 +107,7 @@ impl TextGeneration {
             None => anyhow::bail!("cannot find the <|endoftext|> token"),
         };
         let start_gen = std::time::Instant::now();
+
         for index in 0..sample_len {
             let context_size = if index > 0 { 1 } else { tokens.len() };
             let start_pos = tokens.len().saturating_sub(context_size);
@@ -78,7 +117,7 @@ impl TextGeneration {
                 Model::StableLM(m) => m.forward(&input, start_pos)?,
                 Model::Quantized(m) => m.forward(&input, start_pos)?,
             };
-            let logits = logits.squeeze(0)?.squeeze(0)?.to_dtype(DType::F32)?;
+            let mut logits = logits.squeeze(0)?.squeeze(0)?.to_dtype(DType::F32)?;
             let logits = if self.repeat_penalty == 1.0 {
                 logits
             } else {
@@ -91,6 +130,10 @@ impl TextGeneration {
             };
 
             let next_token = self.logits_processor.sample(&logits)?;
+
+            // Apply top-k sampling
+            // let next_token = sample_top_k(&logits, 2)? as u32;
+
             tokens.push(next_token);
             generated_tokens += 1;
             if next_token == eos_token {
@@ -127,15 +170,30 @@ pub fn load_model(device: Device) -> TextGeneration {
             "main".to_string()
         )
     );
+    //non quantized model
     let (llm_config_filename, llm_tokenizer_filename, llm_weights_filenames) = {
         let config = llm_repo.get("config.json").unwrap();
         let tokenizer = llm_repo.get("tokenizer.json").unwrap();
         let model = vec![llm_repo.get("model.safetensors").unwrap()];
         (config, tokenizer, model)
     };
-    let llm_config: Config = serde_json
-        ::from_str(&std::fs::read_to_string(llm_config_filename).unwrap())
-        .unwrap();
+    //quantized model
+    // let (llm_config_filename, llm_tokenizer_filename, llm_weights_filenames) = {
+    //     let config = llm_repo.get("config.json").unwrap();
+    //     let tokenizer = llm_repo.get("tokenizer.json").unwrap();
+    //     let model = vec![llm_repo.get("stablelm-2-1_6b-q4k.gguf").unwrap()];
+    //     (config, tokenizer, model)
+    // };
+
+    // let llm_config: Config = serde_json
+    //     ::from_str(&std::fs::read_to_string(llm_config_filename).unwrap())
+    //     .unwrap();
+    let llm_config = {
+        let config = std::fs::read_to_string(llm_config_filename).unwrap();
+        let mut config: Config = serde_json::from_str(&config).unwrap();
+        config.set_use_flash_attn(device.is_cuda());
+        config
+    };
     let llm_tokenizer = Tokenizer::from_file(llm_tokenizer_filename).map_err(E::msg).unwrap();
     let dtype = if device.is_metal() { DType::BF16 } else { DType::F32 };
     let llm_model = {
@@ -146,7 +204,7 @@ pub fn load_model(device: Device) -> TextGeneration {
         Model::StableLM(model)
     };
     let seed = 299792458;
-    let temperature: Option<f64> = None;
+    let temperature: Option<f64> = Some(0.9);
     let top_p: Option<f64> = None;
     let repeat_penalty = 1.1;
     let repeat_last_n: usize = 64;

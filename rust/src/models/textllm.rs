@@ -133,9 +133,12 @@ pub fn load_model(device: Device) -> TextGeneration {
         let model = vec![llm_repo.get("model.safetensors").unwrap()];
         (config, tokenizer, model)
     };
-    let llm_config: Config = serde_json
-        ::from_str(&std::fs::read_to_string(llm_config_filename).unwrap())
-        .unwrap();
+    let llm_config = {
+        let config = std::fs::read_to_string(llm_config_filename).unwrap();
+        let mut config: Config = serde_json::from_str(&config).unwrap();
+        config.set_use_flash_attn(device.is_cuda());
+        config
+    };
     let llm_tokenizer = Tokenizer::from_file(llm_tokenizer_filename).map_err(E::msg).unwrap();
     let dtype = if device.is_metal() { DType::BF16 } else { DType::F32 };
     let llm_model = {
@@ -146,7 +149,7 @@ pub fn load_model(device: Device) -> TextGeneration {
         Model::StableLM(model)
     };
     let seed = 299792458;
-    let temperature: Option<f64> = None;
+    let temperature: Option<f64> = Some(0.9);
     let top_p: Option<f64> = None;
     let repeat_penalty = 1.1;
     let repeat_last_n: usize = 64;

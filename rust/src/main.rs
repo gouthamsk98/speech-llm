@@ -43,6 +43,66 @@ pub fn token_id(tokenizer: &Tokenizer, token: &str) -> candle_core::Result<u32> 
         Some(id) => Ok(id),
     }
 }
+use serde::Deserialize;
+use serde_json::Value;
+#[derive(Deserialize)]
+struct OpenAIResponse {
+    choices: Vec<Choice>,
+}
+
+#[derive(Deserialize)]
+struct Choice {
+    message: Message,
+}
+
+#[derive(Deserialize)]
+struct Message {
+    content: String,
+}
+use std::error::Error;
+async fn get_openai_response(prompt: &str, api_key: &str) -> Result<String, Box<dyn Error>> {
+    let client = reqwest::Client::new();
+    let url = "https://api.openai.com/v1/chat/completions";
+
+    let request_body =
+        serde_json::json!({
+        "model": "gpt-4o-mini",
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a helpful assistant."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "max_tokens": 64
+    });
+
+    let response = client
+        .post(url)
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", api_key))
+        .json(&request_body)
+        .send().await?;
+
+    // Check for non-200 HTTP status
+    if !response.status().is_success() {
+        return Err(format!("Failed to get response: {}", response.status()).into());
+    }
+
+    // Parse the JSON response
+    let response_body: OpenAIResponse = response.json().await?;
+
+    // Handle the case where `choices` is empty
+    if let Some(choice) = response_body.choices.get(0) {
+        Ok(choice.message.content.clone())
+    } else {
+        Err("No choices found in the response".into())
+    }
+}
+
 fn parse_args(args: Vec<String>) -> (String, u16, bool, TTSType) {
     let mut port = 8000; // default port
     let mut host = "127.0.0.1".to_string(); // default host
@@ -141,19 +201,32 @@ async fn index(
     } else {
         "sorry I didn't get that"
     };
-    let prompt =
-        format!("<|im_start|>system
-You are a helpful assistant that provides concise answers to questions.
-<|im_end|><|im_start|>user
-{}
-<|im_end|><|im_start|>assistant
-", prompt);
-    match pipelines.llm_pipeline.run(&prompt, 64) {
-        Ok(result) => {
-            println!("{}s", start.elapsed().as_secs());
-            result.replace("\n", " ")
+    if true {
+        match get_openai_response(prompt, "").await {
+            Ok(response) => {
+                println!("Response: {}", response);
+                return response;
+            }
+            Err(err) => {
+                println!("Error: {}", err);
+                return err.to_string();
+            }
         }
-        Err(e) => { e.to_string() }
+    } else {
+        let prompt =
+            format!("<|im_start|>system
+        You are a helpful assistant that provides concise answers to questions.
+        <|im_end|><|im_start|>user
+        {}
+        <|im_end|><|im_start|>assistant
+        ", prompt);
+        match pipelines.llm_pipeline.run(&prompt, 64) {
+            Ok(result) => {
+                println!("{}s", start.elapsed().as_secs());
+                result.replace("\n", " ")
+            }
+            Err(e) => { e.to_string() }
+        }
     }
 }
 

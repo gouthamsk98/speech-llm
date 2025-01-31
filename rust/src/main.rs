@@ -13,10 +13,20 @@ use models::{ whisper, textllm };
 use candle_examples::device;
 use rocket::{ Data, State, tokio::io::AsyncReadExt };
 use std::sync::Arc;
-use rocket::data::ToByteUnit;
+use rocket::data::{ ToByteUnit, N };
 use anyhow::{ Error as E, Result, self };
 use hound::{ WavSpec, WavWriter };
 use candle_transformers::models::whisper::{ self as m, audio };
+use tokio::sync::RwLock;
+use std::io;
+use std::fs::File as STD_FILE;
+use std::collections::HashMap;
+// Shared chat history structure
+type ChatHistory = Arc<RwLock<HashMap<i32, Vec<String>>>>;
+type OpenAIChatHistory = Arc<RwLock<HashMap<i32, Vec<OpenAIChatMessage>>>>;
+
+const MAX_HISTORY_LENGTH: usize = 10;
+
 pub enum TTSType {
     ParlerTTS,
     MetaVoice,
@@ -31,7 +41,7 @@ pub enum TTSPipeline {
 use candle_transformers::models::whisper::Config;
 struct Pipelines {
     whisper_pipeline: whisper::Decoder,
-    llm_pipeline: textllm::TextGeneration,
+    llm_pipeline: Option<textllm::TextGeneration>,
     whisper_config: Config,
     mel_filters: Vec<f32>,
     device: candle_core::Device,
@@ -43,7 +53,7 @@ pub fn token_id(tokenizer: &Tokenizer, token: &str) -> candle_core::Result<u32> 
         Some(id) => Ok(id),
     }
 }
-use serde::Deserialize;
+use serde::{ Deserialize, Serialize };
 use serde_json::Value;
 #[derive(Deserialize)]
 struct OpenAIResponse {
@@ -59,25 +69,25 @@ struct Choice {
 struct Message {
     content: String,
 }
+#[derive(Serialize, Deserialize, Clone)]
+struct OpenAIChatMessage {
+    role: String, // "user" or "assistant"
+    content: String, // The message content
+}
+
 use std::error::Error;
-async fn get_openai_response(prompt: &str, api_key: &str) -> Result<String, Box<dyn Error>> {
+async fn get_openai_response(
+    messages: &[OpenAIChatMessage],
+    api_key: &str,
+    max_token: &usize
+) -> Result<String, Box<dyn Error>> {
     let client = reqwest::Client::new();
     let url = "https://api.openai.com/v1/chat/completions";
-
     let request_body =
         serde_json::json!({
         "model": "gpt-4o-mini",
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are a helpful assistant."
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        "max_tokens": 64
+        "messages":messages ,
+        "max_tokens": max_token
     });
 
     let response = client
@@ -103,12 +113,15 @@ async fn get_openai_response(prompt: &str, api_key: &str) -> Result<String, Box<
     }
 }
 
-fn parse_args(args: Vec<String>) -> (String, u16, bool, TTSType) {
+fn parse_args(args: Vec<String>) -> (String, u16, bool, TTSType, String, usize, bool) {
     let mut port = 8000; // default port
     let mut host = "127.0.0.1".to_string(); // default host
     let mut serve = false;
     let mut tts_type = TTSType::GTTS; // default TTS type
-
+    let mut api_key = "".to_string();
+    let mut max_token = 64;
+    let mut max_history = 10;
+    let mut history = true;
     if args.len() > 1 {
         if args[1] == "--serve" {
             serve = true;
@@ -128,55 +141,68 @@ fn parse_args(args: Vec<String>) -> (String, u16, bool, TTSType) {
                             _ => TTSType::GTTS,
                         };
                     }
+                    "--api-key" if i + 1 < args.len() => {
+                        api_key = args[i + 1].to_string();
+                    }
+                    "--max-token" if i + 1 < args.len() => {
+                        max_token = args[i + 1].parse().unwrap_or(64);
+                    }
+                    "--no-history" => {
+                        history = false;
+                    }
                     _ => {}
                 }
             }
         }
     }
 
-    (host, port, serve, tts_type)
+    (host, port, serve, tts_type, api_key, max_token, history)
 }
-use tokio::sync::RwLock;
-use std::io;
-use std::fs::File as STD_FILE;
+
 #[post("/<service_id>", data = "<data>")]
 async fn index(
     data: Data<'_>,
     service_id: i32,
-    pipelines: &State<Arc<RwLock<Pipelines>>>
+    pipelines: &State<Arc<RwLock<Pipelines>>>,
+    chat_history: &State<ChatHistory>,
+    open_ai_chat_history: &State<OpenAIChatHistory>,
+    history: &State<bool>,
+    api_key: &State<String>,
+    max_token: &State<usize>
 ) -> String {
     let mut buffer = Vec::new();
     let mut pipelines = pipelines.inner().write().await;
+
+    // Read data
     match data.open((512).kibibytes()).read_to_end(&mut buffer).await {
         Ok(_) => {}
         Err(e) => {
             eprintln!("Failed to read data: {}", e);
         }
     }
+
     let spec = WavSpec {
         channels: 1,
         sample_rate: 16000,
         bits_per_sample: 16,
         sample_format: hound::SampleFormat::Int,
     };
+
     let file_name = format!("static/service_{}_output.wav", service_id);
     let file = STD_FILE::create(&file_name).unwrap();
-    //Write the data to the file
+
+    // Write the data to the file
     let mut writer = WavWriter::new(file, spec)
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
         .unwrap();
+
     for sample in buffer.chunks_exact(2) {
-        // Convert bytes to i16 samples (assuming incoming data is in PCM format)
         let sample = i16::from_le_bytes([sample[0], sample[1]]);
-        writer
-            .write_sample(sample)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
-            .unwrap();
+        writer.write_sample(sample).unwrap();
     }
-    writer
-        .finalize()
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
-        .unwrap();
+
+    writer.finalize().unwrap();
+
     let start = std::time::Instant::now();
     let (pcm_data, sample_rate) = crate::pcm_decode::pcm_decode(file_name).unwrap();
     let mel = audio::pcm_to_mel(&pipelines.whisper_config, &pcm_data, &pipelines.mel_filters);
@@ -192,18 +218,62 @@ async fn index(
             &pipelines.device
         )
         .unwrap();
-    if sample_rate != (16000 as u32) {
-        "unexpected sample rate {sample_rate}".to_string();
+
+    if sample_rate != 16000 {
+        return format!("unexpected sample rate {sample_rate}");
     }
+
     let decode = pipelines.whisper_pipeline.run(&mel, None).unwrap();
-    let prompt = if let Some(first_segment) = decode.get(0) {
+    let user_prompt = if let Some(first_segment) = decode.get(0) {
         &first_segment.dr.text
     } else {
         "sorry I didn't get that"
     };
-    if true {
-        match get_openai_response(prompt, "").await {
+
+    if pipelines.llm_pipeline.is_none() {
+        if !**history {
+            let chat: OpenAIChatMessage = OpenAIChatMessage {
+                role: "user".to_string(),
+                content: user_prompt.to_string(),
+            };
+            match get_openai_response(&[chat], api_key, max_token).await {
+                Ok(response) => {
+                    println!("Inference time: {:?} millis", start.elapsed().as_millis());
+                    println!("Response: {}", response);
+                    return response;
+                }
+                Err(err) => {
+                    println!("Error: {}", err);
+                    return err.to_string();
+                }
+            }
+        }
+        // Update chat history
+        let mut history = open_ai_chat_history.inner().write().await;
+        let chat = history.entry(service_id).or_insert_with(Vec::new);
+
+        // Add the user's message to history
+        chat.push(OpenAIChatMessage {
+            role: "user".to_string(),
+            content: user_prompt.to_string(),
+        });
+        // Enforce history length limit
+        if chat.len() > MAX_HISTORY_LENGTH {
+            chat.drain(0..chat.len() - MAX_HISTORY_LENGTH);
+        }
+
+        // Enforce history length limit
+        if chat.len() > MAX_HISTORY_LENGTH {
+            chat.drain(0..chat.len() - MAX_HISTORY_LENGTH);
+        }
+        match get_openai_response(&chat, api_key, max_token).await {
             Ok(response) => {
+                // Add the assistant's response to history
+                chat.push(OpenAIChatMessage {
+                    role: "assistant".to_string(),
+                    content: response.clone(),
+                });
+                println!("Inference time: {:?} millis", start.elapsed().as_millis());
                 println!("Response: {}", response);
                 return response;
             }
@@ -213,19 +283,58 @@ async fn index(
             }
         }
     } else {
-        let prompt =
-            format!("<|im_start|>system
-        You are a helpful assistant that provides concise answers to questions.
-        <|im_end|><|im_start|>user
-        {}
-        <|im_end|><|im_start|>assistant
-        ", prompt);
-        match pipelines.llm_pipeline.run(&prompt, 64) {
+        if !**history {
+            let prompt =
+                format!("<|im_start|>user\n{}\n<|im_end|><|im_start|>assistant\n", user_prompt);
+            match
+                pipelines.llm_pipeline
+                    .as_mut()
+                    .expect("LLM pipeline is not initialized")
+                    .run(&prompt, **max_token)
+            {
+                Ok(result) => {
+                    println!("Inference time: {:?} millis", start.elapsed().as_millis());
+                    println!("Response: {}", result);
+                    return result.replace("\n", " ");
+                }
+                Err(e) => {
+                    return e.to_string();
+                }
+            }
+        }
+        // Retrieve and update chat history for this service_id
+        let mut history = chat_history.inner().write().await;
+        let chat = history.entry(service_id).or_insert_with(Vec::new);
+
+        // Append the user prompt
+        chat.push(format!("<|im_start|>user\n{}\n<|im_end|>", user_prompt));
+
+        // Enforce history length limit
+        if chat.len() > MAX_HISTORY_LENGTH {
+            chat.drain(0..chat.len() - MAX_HISTORY_LENGTH); // Remove oldest entries
+        }
+        let prompt = format!("{}<|im_start|>assistant\n", chat.join(""));
+        match
+            pipelines.llm_pipeline
+                .as_mut()
+                .expect("LLM pipeline is not initialized")
+                .run(&prompt, **max_token)
+        {
             Ok(result) => {
-                println!("{}s", start.elapsed().as_secs());
+                println!("Inference time: {:?} millis", start.elapsed().as_millis());
+                println!("Response: {}", result);
+
+                // Append the assistant response
+                chat.push(format!("{}\n<|im_end|>", result));
+
+                // Enforce history length limit again after appending
+                if chat.len() > MAX_HISTORY_LENGTH {
+                    chat.drain(0..chat.len() - MAX_HISTORY_LENGTH);
+                }
+
                 result.replace("\n", " ")
             }
-            Err(e) => { e.to_string() }
+            Err(e) => e.to_string(),
         }
     }
 }
@@ -233,12 +342,11 @@ async fn index(
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = env::args().collect();
-    let (host, port, serve, tts_type) = parse_args(args);
+    let (host, port, serve, tts_type, api_key, max_token, history) = parse_args(args);
     if serve {
         let device = device(false).unwrap();
         let whisper_pipeline = whisper::load_model(device.clone());
         let whisper_config = whisper::get_config();
-        let llm_pipeline = textllm::load_model(device.clone(), true);
         let mel_bytes = match whisper_config.num_mel_bins {
             80 => include_bytes!("melfilters.bytes").as_slice(),
             128 => include_bytes!("melfilters128.bytes").as_slice(),
@@ -252,15 +360,28 @@ async fn main() {
         let pipelines = Arc::new(
             RwLock::new(Pipelines {
                 whisper_pipeline,
-                llm_pipeline,
+                llm_pipeline: if api_key.is_empty() {
+                    Some(textllm::load_model(device.clone(), true))
+                } else {
+                    None
+                },
+                // llm_pipeline,
                 whisper_config,
                 mel_filters,
                 device,
             })
         );
+        // Create shared chat history
+        let chat_history: ChatHistory = Arc::new(RwLock::new(HashMap::new()));
+        let open_ai_chat_history: OpenAIChatHistory = Arc::new(RwLock::new(HashMap::new()));
         rocket
             ::build()
             .manage(pipelines)
+            .manage(api_key)
+            .manage(max_token)
+            .manage(chat_history)
+            .manage(open_ai_chat_history)
+            .manage(history)
             .mount("/", routes![index])
             .configure(rocket::Config {
                 address: host.parse().unwrap(),

@@ -4,8 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.8.2", features = ["metal"] }
-candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.8.2", features = ["metal"] }
 candle-transformers = { git = "https://github.com/huggingface/candle.git", version = "0.8.2" }
 candle-examples = { git = "https://github.com/huggingface/candle.git", version = "0.8.2" }
 hf-hub = {version="0.4.1",features=["tokio"]}
@@ -25,3 +23,10 @@ rocket = { version = "0.5.0-rc.2", features = ["json"] }
 hound="3.5.1"
 serde ="1.0.130"
 tracing="0.1.37"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.8.2", features = ["metal"] }
+candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.8.2", features = ["metal"] }
+[target.'cfg(target_os = "linux")'.dependencies]
+candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.8.2", features = ["cuda"] }
+candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.8.2", features = ["cuda"] }

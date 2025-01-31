@@ -120,8 +120,27 @@ fn parse_args(args: Vec<String>) -> (String, u16, bool, TTSType, String, usize, 
     let mut tts_type = TTSType::GTTS; // default TTS type
     let mut api_key = "".to_string();
     let mut max_token = 64;
-    let mut max_history = 10;
-    let mut history = true;
+    let mut history = true; // default to keeping history
+
+    // Display help message if --help is provided
+    if args.contains(&"--help".to_string()) {
+        println!(
+            "Usage: [OPTIONS]
+
+Options:
+  --serve                   Start the server.
+  --host <HOST>             Set the server host (default: 127.0.0.1).
+  --port <PORT>             Set the server port (default: 8000).
+  --tts <TYPE>              Set the TTS type. Available types: gtts (default), parler, meta.
+  --api-key <KEY>           Set the API key for external services.
+  --max-token <NUMBER>      Set the maximum token limit for API responses (default: 64).
+  --no-history              Disable saving chat history.
+  --help                    Show this help message and exit.
+"
+        );
+        std::process::exit(0); // Exit the program after showing help
+    }
+
     if args.len() > 1 {
         if args[1] == "--serve" {
             serve = true;
